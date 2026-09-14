@@ -1,0 +1,6 @@
+version: 1
+roots: [spec]
+exclude: []
+remind_after: 8
+stop_on_errors: false
+

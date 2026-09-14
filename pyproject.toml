@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spec-align"
+version = "0.3.0"
+description = "Explicit Markdown dependencies and version-bound review"
+requires-python = ">=3.10"
+dependencies = ["markdown-it-py>=3,<5", "PyYAML>=6,<7", "mcp>=1.12,<2", "tomli>=2; python_version<'3.11'"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+specalign = "specalign.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["specalign*"]
+
+[tool.setuptools.package-data]
+specalign = ["assets/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
