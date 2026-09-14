@@ -1,0 +1,46 @@
+"""Small explicit project configuration. No executable configuration."""
+import fnmatch
+from pathlib import Path
+
+import yaml
+
+from .protocol import ProtocolError, UniqueLoader
+
+DEFAULT = {'version': 1, 'roots': ['spec'], 'exclude': [], 'remind_after': 8, 'stop_on_errors': False}
+
+
+def load_config(root):
+    path = root / 'specalign.yaml'
+    try:
+        supplied = yaml.load(path.read_text(encoding='utf-8-sig'), Loader=UniqueLoader) if path.exists() else {}
+    except (yaml.YAMLError, OSError) as error:
+        raise ProtocolError(f'Cannot read specalign.yaml: {error}') from error
+    if not isinstance(supplied, dict) or set(supplied) - set(DEFAULT):
+        raise ProtocolError('Unknown configuration key or invalid mapping')
+    config = {**DEFAULT, **supplied}
+    if type(config['version']) is not int or config['version'] != 1:
+        raise ProtocolError('Only configuration version 1 is supported')
+    for key in ('roots', 'exclude'):
+        if not isinstance(config[key], list) or any(not isinstance(v, str) or not v for v in config[key]):
+            raise ProtocolError(f'{key} must be a list of nonempty strings')
+    if not config['roots'] or len(set(config['roots'])) != len(config['roots']):
+        raise ProtocolError('roots must be nonempty and unique')
+    config['roots'] = [Path(p.replace('\\', '/')).as_posix() for p in config['roots']]
+    if len(set(config['roots'])) != len(config['roots']):
+        raise ProtocolError('roots resolve to duplicate directories')
+    for value in config['roots']:
+        candidate = root / value
+        if Path(value).is_absolute() or '..' in Path(value).parts or not candidate.resolve().is_relative_to(root):
+            raise ProtocolError('Managed roots must stay within the project')
+        if any(part.startswith('.') for part in Path(value).parts if part != '.') or value in {'.', ''}:
+            raise ProtocolError('Use explicit document directories, not project or hidden state roots')
+    if type(config['remind_after']) is not int or not 1 <= config['remind_after'] <= 1000:
+        raise ProtocolError('remind_after must be an integer from 1 to 1000')
+    if type(config['stop_on_errors']) is not bool:
+        raise ProtocolError('stop_on_errors must be boolean')
+    return config
+
+
+def excluded(path, patterns):
+    return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+
