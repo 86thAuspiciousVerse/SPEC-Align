@@ -10,6 +10,11 @@ DEFAULT = {'version': 1, 'roots': ['spec'], 'exclude': [], 'remind_after': 8, 's
 
 
 def load_config(root):
+    # Resolve the project root once before comparing descendants.  On Windows,
+    # tempfile paths can use an 8.3 alias while Path.resolve() returns the long
+    # form; comparing one resolved path with one unresolved path falsely looks
+    # like an out-of-root directory.
+    root = Path(root).resolve()
     path = root / 'specalign.yaml'
     try:
         supplied = yaml.load(path.read_text(encoding='utf-8-sig'), Loader=UniqueLoader) if path.exists() else {}

@@ -225,7 +225,10 @@ def git_check(root):
     if result.returncode:
         raise ProtocolError('Cannot read Git index')
     with tempfile.TemporaryDirectory(prefix='specalign-index-') as directory:
-        temp = Path(directory)
+        # Keep the temporary project root in the same canonical form used by
+        # load_config() and Runtime.  This matters on Windows where the temp
+        # directory may be returned through an 8.3 alias.
+        temp = Path(directory).resolve()
         entries = []
         for entry in result.stdout.split(b'\0'):
             if not entry:

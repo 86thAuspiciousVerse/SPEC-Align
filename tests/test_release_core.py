@@ -1,7 +1,10 @@
+import os
 import shutil
+from pathlib import Path
 
 import pytest
 
+from specalign.config import load_config
 from specalign.core import ProtocolError, Runtime
 from specalign.storage import restore
 from test_runtime import block, codes, project
@@ -51,6 +54,12 @@ def test_configuration_roots_and_exclusion(project):
     (runtime.root / 'specalign.yaml').write_text('roots: [../outside]\n', encoding='utf-8')
     with pytest.raises(ProtocolError):
         runtime.scan()
+
+
+def test_configuration_resolves_project_root_before_boundary_check(project):
+    runtime, _ = project
+    relative_root = Path(os.path.relpath(runtime.root, Path.cwd()))
+    assert load_config(relative_root)['roots'] == ['spec']
 
 
 def test_proposal_acceptance_and_retirement(project):
