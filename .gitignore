@@ -1,0 +1,18 @@
+.specalign/
+/codegraph/
+.venv/
+.venv-build/
+build/
+dist/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+experiments/hooks/events.jsonl
+experiments/hooks/run.jsonl
+experiments/hooks/run.stderr.txt
+experiments/hooks/workspace/
+
+# Generated local integration includes absolute interpreter paths
+/.codex/hooks.json
+/.codex/config.toml
+
