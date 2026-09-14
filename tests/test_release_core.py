@@ -1,4 +1,3 @@
-import os
 import shutil
 from pathlib import Path
 
@@ -56,9 +55,10 @@ def test_configuration_roots_and_exclusion(project):
         runtime.scan()
 
 
-def test_configuration_resolves_project_root_before_boundary_check(project):
+def test_configuration_resolves_project_root_before_boundary_check(project, monkeypatch):
     runtime, _ = project
-    relative_root = Path(os.path.relpath(runtime.root, Path.cwd()))
+    monkeypatch.chdir(runtime.root.parent)
+    relative_root = Path(runtime.root.name)
     assert load_config(relative_root)['roots'] == ['spec']
 
 
