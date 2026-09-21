@@ -74,3 +74,15 @@ python -m specalign --root C:/CodeX/Spec-align doctor
 - 前次独立审查因429未完成；本轮新上下文审查完成，核对 query、批次事务、CLI/MCP 和测试，未发现阻塞缺陷。重新运行41项测试及walkthrough全部通过；实际44条目项目仍为零问题，快照未变。
 - 本轮未更改 hook 定义或信任；运行中的旧 MCP 服务需重新加载才使用0.3接口，真实stdio子进程测试不代表旧服务已热更新。
 
+## 2026-09-16 MCP 根目录隔离修复
+
+这次排查确认了一个配置边界：全局 `SpecAlign` MCP 条目把 `--root C:\CodeX\Spec-align` 固定在本仓库，不能代表用户正在开发的任意项目。现在服务支持无参数未绑定启动：启动阶段不扫描任何目录，agent 在每次工具调用中显式提供项目绝对路径；项目级绑定模式仍然兼容。
+
+- MCP 服务说明区分绑定和未绑定模式；每个成功投影都返回 `project_root`，未绑定模式的 `spec_init`、检查、查询和写操作都要求绝对 `root`。CLI 与项目级 MCP 的根目录仍由显式参数决定。
+- skill 和协议要求在未绑定服务中先确认工作区绝对路径，并在每次调用中传入 `root`；第一次检查后仍需核对 `project_root`，缺失或不一致时不得调用 review/decide。目标项目不需要保存自己的 MCP 配置，也可以直接复用全局未绑定服务。
+- CC Switch 数据库中精确匹配的 `SpecAlign` 条目已备份后改为无参数并保持停用（`args: ['--root', 'C:\CodeX\Spec-align', 'serve'] -> ['serve']`，`enabled_codex` 保持 `0`）；全局 Codex 配置的同名条目也为 `args = ['serve']`、`enabled = false`。没有修改其他 MCP、认证或信任设置。
+- 回归测试：`43 passed`；Windows 单文件重新构建并在仓库外 smoke 通过，包含绑定和未绑定 MCP、显式 root 及 `project_root` 断言。当前 exe 为 `dist/windows/specalign.exe`，SHA-256 `23e09844b0af17317b07e366f9bf45b4c9f695e648e70597fb3d44d56ab9dc2f`。
+- wheel `spec_align-0.3.0-py3-none-any.whl` 已按无源码目录依赖方式在仓库外临时目录安装，并完成 CLI/MCP 初始化与未绑定模式 smoke；SHA-256 `518d3b2ba25e17c94acbfae755d5256d32f27dcaa8c20dee9d35e7454aed5b0d`。
+
+这项修复解决了固定全局根目录造成的账本隔离问题；未绑定 MCP 仍然依赖 agent 传入正确的绝对 `root`，runtime 不会从聊天内容推断工作区。切换项目或提供商后应重启/重新加载 Codex，并确认工具返回的 `project_root` 与当前项目一致。
+

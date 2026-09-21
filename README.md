@@ -66,7 +66,17 @@ PostToolUse 扫描文件并返回 additionalContext。Stop 默认只警告；配
 
 **用户信任后，新 Codex CLI 的自动提醒已实测送达模型，复核清零后再次运行不再提醒。** 当前桌面会话原生 MCP 调用也已通过，但桌面 PostToolUse 尚未观察到触发；CLI 结果不代替桌面验证。详见 [工作流实测](experiments/workflow/README.md)。
 
-MCP 暴露 `spec_check`、`spec_explain`、`spec_context`、`spec_impact`、`spec_history`、`spec_review`、`spec_decide`、`spec_review_batch`、`spec_migration_plan`。所有工具固定在启动时指定的项目，不接受任意外部根目录切换。
+MCP 暴露 `spec_init`、`spec_check`、`spec_explain`、`spec_context`、`spec_impact`、`spec_history`、`spec_review`、`spec_decide`、`spec_review_batch`、`spec_migration_plan`。服务可以在启动时绑定项目，也可以无参数启动为未绑定模式。未绑定服务启动时不扫描目录，agent 每次调用项目工具都要传入当前项目的绝对 `root`；首次使用可调用 `spec_init(root=...)`。每个成功返回都带有 `project_root`，客户端应先核对它与当前项目一致，再使用 snapshot 做复核或决策。不要启用把根目录固定到本仓库的旧全局条目。
+
+如果不想为每个项目写 MCP 配置，可在全局配置中使用未绑定服务：
+
+```toml
+[mcp_servers.SpecAlign]
+command = 'C:\CodeX\Spec-align\dist\windows\specalign.exe'
+args = ['serve']
+```
+
+它启动时不会扫描任何目录。agent 先确认当前工作区绝对路径，再调用 `spec_init(root="C:\\path\\to\\project")`（需要初始化时）和 `spec_check(root="C:\\path\\to\\project")`。不要把 `--root` 留成相对路径或 shell 变量；工具不会从 MCP 会话自动获取工作区目录。
 
 ## Skill 与数据
 
