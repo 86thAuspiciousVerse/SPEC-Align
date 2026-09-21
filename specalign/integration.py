@@ -136,11 +136,17 @@ def install(root, codex=False, git_hook=False):
         strip_handlers(value, old_handlers)
         args = launch_command(root, 'hook')
         command = subprocess.list2cmdline(args) if os.name == 'nt' else shlex.join(args)
-        handler = {'type': 'command', 'command': command, 'timeout': 15, 'statusMessage': MARKER}
+        base_handler = {'type': 'command', 'command': command, 'timeout': 15, 'statusMessage': MARKER}
         if os.name == 'nt':
-            handler['commandWindows'] = command
-        for event in ('PostToolUse', 'Stop'):
-            value['hooks'].setdefault(event, []).append({'hooks': [handler]})
+            base_handler['commandWindows'] = command
+        # PostToolUse is informational and may return additionalContext.  Run it
+        # in the background so its developer context cannot be interleaved with
+        # the tool result sent to a provider.  Stop stays synchronous because it
+        # is the only event that can request continuation/blocking.
+        post_handler = {**base_handler, 'async': True}
+        stop_handler = dict(base_handler)
+        value['hooks'].setdefault('PostToolUse', []).append({'hooks': [post_handler]})
+        value['hooks'].setdefault('Stop', []).append({'hooks': [stop_handler]})
         skill = root / '.agents' / 'skills' / 'spec-align' / 'SKILL.md'
         template = files('specalign').joinpath('assets/SKILL.md').read_text(encoding='utf-8')
         previous = owned.get('skill_hash')
@@ -154,7 +160,7 @@ def install(root, codex=False, git_hook=False):
             changed.append(str(skill))
         if atomic_write(mcp_path, mcp_text):
             changed.append(str(mcp_path))
-        owned.update({'skill_hash': expected, 'hook_handlers': [handler], 'mcp_block': mcp_block})
+        owned.update({'skill_hash': expected, 'hook_handlers': [post_handler, stop_handler], 'mcp_block': mcp_block})
     if git_hook:
         path = git_path
         command = shlex.join([arg.replace('\\', '/') for arg in launch_command(root, 'git-check')])
