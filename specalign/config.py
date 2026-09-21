@@ -9,6 +9,26 @@ from .protocol import ProtocolError, UniqueLoader
 DEFAULT = {'version': 1, 'roots': ['spec'], 'exclude': [], 'remind_after': 8, 'stop_on_errors': False}
 
 
+def initialize_project(root):
+    """Create the default project configuration and managed directories."""
+    root = Path(root).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    config = load_config(root)
+    created = []
+    for relative in config['roots']:
+        path = root / relative
+        if not path.exists():
+            path.mkdir(parents=True)
+            created.append(str(path))
+        elif not path.is_dir():
+            raise ProtocolError(f'Managed root is not a directory: {path}')
+    config_path = root / 'specalign.yaml'
+    if not config_path.exists():
+        config_path.write_text(yaml.safe_dump(DEFAULT, sort_keys=False), encoding='utf-8')
+        created.append(str(config_path))
+    return {'project_root': str(root), 'config': str(config_path), 'roots': config['roots'], 'created': created}
+
+
 def load_config(root):
     # Resolve the project root once before comparing descendants.  On Windows,
     # tempfile paths can use an 8.3 alias while Path.resolve() returns the long

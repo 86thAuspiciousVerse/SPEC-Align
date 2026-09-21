@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .core import ProtocolError, Runtime
-from .config import DEFAULT, load_config
+from .config import initialize_project
 from .output import agent_report
 
 
@@ -14,7 +14,7 @@ def main():
         if hasattr(stream, 'reconfigure'):
             stream.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(prog='specalign')
-    parser.add_argument('--root', type=Path, default=Path.cwd())
+    parser.add_argument('--root', type=Path)
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('init')
     for name in ('scan', 'check'):
@@ -61,24 +61,23 @@ def main():
     sub.add_parser('doctor')
     sub.add_parser('git-check')
     args = parser.parse_args()
-    args.root = args.root.resolve()
     runtime = None
     try:
         if args.command == 'init':
-            args.root.mkdir(parents=True, exist_ok=True)
-            config = load_config(args.root)
-            for path in config['roots']:
-                (args.root / path).mkdir(parents=True, exist_ok=True)
-            config_path = args.root / 'specalign.yaml'
-            if not config_path.exists():
-                import yaml
-                config_path.write_text(yaml.safe_dump(DEFAULT, sort_keys=False), encoding='utf-8')
+            args.root = (args.root or Path.cwd()).resolve()
+            initialize_project(args.root)
             print('Initialized managed directories and specalign.yaml; no hooks installed.')
             return 0
         if args.command == 'restore':
+            args.root = (args.root or Path.cwd()).resolve()
             from .storage import restore
             print(json.dumps(restore(args.root, args.source), ensure_ascii=False))
             return 0
+        if args.command == 'serve':
+            from .mcp_server import run_server
+            run_server(args.root)
+            return 0
+        args.root = (args.root or Path.cwd()).resolve()
         if args.command in {'install', 'uninstall', 'doctor'}:
             from .integration import doctor, install, uninstall
             if args.command == 'doctor':
@@ -88,10 +87,6 @@ def main():
                     raise ProtocolError('Select --codex and/or --git-hook explicitly')
                 result = (install if args.command == 'install' else uninstall)(args.root, args.codex, args.git_hook)
             print(json.dumps(result, ensure_ascii=False, indent=2))
-            return 0
-        if args.command == 'serve':
-            from .mcp_server import run_server
-            run_server(args.root)
             return 0
         if args.command == 'git-check':
             from .integration import git_check

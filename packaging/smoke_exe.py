@@ -51,21 +51,33 @@ def main():
                 async with stdio_client(StdioServerParameters(command=str(exe), args=['--root',str(root),'serve'],env=env,cwd=str(base))) as (reader,writer):
                     async with ClientSession(reader,writer) as client:
                         await client.initialize()
-                        assert len((await client.list_tools()).tools) == 9
+                        assert len((await client.list_tools()).tools) == 10
                         async def call(name, args):
                             response = await client.call_tool(name,args)
                             assert not response.isError, response
                             return json.loads(response.content[0].text)
                         report = await call('spec_check', {})
+                        assert report['project_root'] == str(root)
                         assert 'items' not in report and report['unresolved_count'] == 1
                         await call('spec_context', {'items':['B'],'related':True})
                         report = await call('spec_review_batch', {'snapshot':report['snapshot'], 'reviews':[{'item':'B','reason':'Fixture: local design matches local requirement.'}]})
                         assert report['findings'] == []
+                async with stdio_client(StdioServerParameters(command=str(exe), args=['serve'],env=env,cwd=str(base))) as (reader,writer):
+                    async with ClientSession(reader,writer) as client:
+                        await client.initialize()
+                        missing = await client.call_tool('spec_check', {})
+                        assert missing.isError
+                        initialized = await client.call_tool('spec_init', {'root':str(root)})
+                        assert not initialized.isError
+                        assert json.loads(initialized.content[0].text)['project_root'] == str(root)
+                        unbound = await client.call_tool('spec_check', {'root':str(root)})
+                        assert not unbound.isError
+                        assert json.loads(unbound.content[0].text)['project_root'] == str(root)
         anyio.run(mcp)
         assert json.loads(run('check','--detail','summary'))['findings'] == []
         run('backup',str(base/'ledger.sqlite3'))
         run('uninstall','--codex')
-        print(json.dumps({'exe_smoke':'passed','mcp_tools':9,'hook_seconds':round(elapsed,3),
+        print(json.dumps({'exe_smoke':'passed','mcp_tools':10,'hook_seconds':round(elapsed,3),
                           'python_removed_from_child_path':True,'unicode_spaces':True}))
 
 

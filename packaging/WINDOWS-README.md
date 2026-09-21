@@ -27,6 +27,16 @@ args = ['--root', 'C:\Projects\my-project', 'serve']
 serve 使用 stdin/stdout 标准 MCP 协议，没有网页端口。无需 Python 参数 `-m specalign`。
 MCP 单独配置不等于安装 skill 或 hook；需要自动提醒时使用 install --codex。
 
+如果不想为每个项目保存一份 MCP 配置，也可以使用未绑定的全局条目：
+
+```toml
+[mcp_servers.SpecAlign]
+command = 'C:\Tools\specalign\specalign.exe'
+args = ['serve']
+```
+
+未绑定服务启动时不扫描任何目录。agent 必须从当前工作区取得绝对路径，并在每次工具调用中传入 `root`；首次使用时可调用 `spec_init(root=...)` 创建配置和 `spec/`。返回中的 `project_root` 必须与当前项目一致。服务不会从 MCP 会话自动获取工作目录，也不会展开相对路径或 shell 变量。
+
 ## 移动、升级与卸载
 
 - 安装配置记录 exe 的绝对路径。不要安装后删除或移动它；若移动，应在新位置重新运行 install --codex，并重新核对宿主信任。

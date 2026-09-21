@@ -70,11 +70,13 @@ specalign --root <root> review <item-id> --snapshot <实际快照> --reason "具
 
 ## 提醒边界
 
-skill 自身不自动运行 hook。未配置或未验证宿主 hook 时，仍需要显式调用检查，不声称已自动巡查。`PostToolUse` 返回提醒 JSON，`Stop` 默认作警告，配置 stop_on_errors 后结构错误最多请求继续一次。安装集成使用显式 `install --codex`，不修改信任、认证或全局配置。MCP 可用时 spec_check/spec_explain/spec_context/spec_impact/spec_history/spec_review/spec_decide 对应同一核心；用工具返回的真实 snapshot，不发明 token。
+skill 自身不自动运行 hook。未配置或未验证宿主 hook 时，仍需要显式调用检查，不声称已自动巡查。`PostToolUse` 返回提醒 JSON，`Stop` 默认作警告，配置 stop_on_errors 后结构错误最多请求继续一次。安装集成使用显式 `install --codex`，不修改信任、认证或全局配置。MCP 可用时 spec_init/spec_check/spec_explain/spec_context/spec_impact/spec_history/spec_review/spec_decide/spec_review_batch/spec_migration_plan 对应同一核心；用工具返回的真实 snapshot，不发明 token。
+
+MCP 可以在启动时绑定项目，也可以无参数启动为未绑定服务。未绑定服务启动时不扫描任何目录；先通过 shell 的 `pwd`/`Get-Location` 或当前任务已确认的工作区信息取得绝对路径，再把它作为每次项目工具调用的 `root`，需要建立项目时先调用 `spec_init(root=...)`。绑定或未绑定模式的成功结果都会带 `project_root`，必须核对它与当前目标项目一致；字段缺失或不一致时，不得调用 `spec_review`、`spec_decide` 或批量复核，改用 CLI 的显式 `--root <root>`。不要混用不同根目录的 snapshot。不要把相对路径、`$PWD` 或 `${workspaceFolder}` 当作 MCP root；MCP 不会替你展开这些变量。
 
 ## 0.3 紧凑工作流
 
-MCP spec_check 默认 summary，不再返回全部 items 正文；单项采纳/复核返回精简回执。需要正文使用 explain/context 或 check(detail="full")。CLI check 为兼容旧脚本仍默认 full，可用 --detail summary 或 --agent。scope 只过滤显示，不取消项目级结构错误，注意 project_error_count/project_unresolved_count。
+MCP spec_check 默认 summary，不再返回全部 items 正文；单项采纳/复核返回精简回执。未绑定服务的每次调用都要带 `root`，绑定服务可省略。需要正文使用 explain/context 或 check(detail="full")。CLI check 为兼容旧脚本仍默认 full，可用 --detail summary 或 --agent。scope 只过滤显示，不取消项目级结构错误，注意 project_error_count/project_unresolved_count。
 
 当前任务可调用 spec_context(items=[ID1, ID2], related=true)，不能同时提供 item 与 items。正文共享 max_chars 预算，max_items 限制条目数；检查截断和 omitted_items，未读到的依据不得复核。related 只增加目标一跳关系，不意味着完整全项目关系。
 

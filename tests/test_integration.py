@@ -44,6 +44,9 @@ def test_installed_hook_command_runs_without_model(project):
     install(runtime.root, codex=True)
     config = json.loads((runtime.root / '.codex/hooks.json').read_text(encoding='utf-8'))
     handler = config['hooks']['PostToolUse'][0]['hooks'][0]
+    assert handler['async'] is True
+    stop_handler = config['hooks']['Stop'][0]['hooks'][0]
+    assert stop_handler.get('async') is not True
     command = handler.get('commandWindows', handler['command']) if os.name == 'nt' else handler['command']
     result = subprocess.run(command, shell=True, cwd=runtime.root,
                             input=json.dumps({'hook_event_name': 'PostToolUse', 'session_id': 'installed'}),
@@ -88,6 +91,7 @@ def test_mcp_real_stdio_roundtrip(project):
                     checked = await client.call_tool('spec_check', {})
                     assert not checked.isError
                     report = json.loads(checked.content[0].text)
+                    assert report['project_root'] == str(runtime.root)
                     assert 'items' not in report
                     full = await client.call_tool('spec_check', {'detail':'full'})
                     assert 'A' in json.loads(full.content[0].text)['items']
@@ -104,6 +108,56 @@ def test_mcp_real_stdio_roundtrip(project):
                     invalid = await client.call_tool('spec_context', {'item': 'B', 'max_chars': -1})
                     assert invalid.isError
     anyio.run(scenario)
+
+
+def test_unbound_mcp_requires_root_and_keeps_projects_separate(tmp_path):
+    first = tmp_path / 'first project'
+    second = tmp_path / 'second project'
+
+    async def scenario():
+        server = StdioServerParameters(command=sys.executable,
+                                       args=['-m', 'specalign', 'serve'],
+                                       env={'PYTHONIOENCODING': 'utf-8'},
+                                       cwd=str(tmp_path))
+        with anyio.fail_after(30):
+            async with stdio_client(server) as (reader, writer):
+                async with ClientSession(reader, writer) as client:
+                    await client.initialize()
+                    names = {t.name for t in (await client.list_tools()).tools}
+                    assert len(names) == 10 and 'spec_init' in names
+
+                    missing = await client.call_tool('spec_check', {})
+                    assert missing.isError
+                    relative = await client.call_tool('spec_check', {'root': '.'})
+                    assert relative.isError
+
+                    initialized = await client.call_tool('spec_init', {'root': str(first)})
+                    assert not initialized.isError
+                    assert json.loads(initialized.content[0].text)['project_root'] == str(first.resolve())
+                    (first / 'spec/first.md').write_text(block('FIRST'), encoding='utf-8')
+                    first_report = await client.call_tool('spec_check', {'root': str(first), 'detail': 'full'})
+                    assert not first_report.isError
+                    first_value = json.loads(first_report.content[0].text)
+                    assert first_value['project_root'] == str(first.resolve())
+                    assert 'FIRST' in first_value['items']
+
+                    initialized = await client.call_tool('spec_init', {'root': str(second)})
+                    assert not initialized.isError
+                    (second / 'spec/second.md').write_text(block('SECOND'), encoding='utf-8')
+                    second_report = await client.call_tool('spec_check', {'root': str(second), 'detail': 'full'})
+                    assert not second_report.isError
+                    second_value = json.loads(second_report.content[0].text)
+                    assert second_value['project_root'] == str(second.resolve())
+                    assert 'SECOND' in second_value['items'] and 'FIRST' not in second_value['items']
+
+                    cross_project = await client.call_tool('spec_review', {
+                        'root': str(second), 'item': 'FIRST',
+                        'snapshot': first_value['snapshot'], 'reason': 'Must be rejected across projects',
+                    })
+                    assert cross_project.isError
+
+    anyio.run(scenario)
+    assert not (tmp_path / '.specalign').exists()
 
 
 def test_modified_git_hook_is_never_overwritten_or_deleted(project):

@@ -78,11 +78,13 @@ roots 是项目内非隐藏文档目录，不能指向项目根或越界目录�
 
 ## 提醒与接入
 
-PostToolUse 调用扫描，将当前问题经 JSON additionalContext 返回；不读 transcript/tool_response 或聊天。以问题及相关版本去重，无变化不刷屏，默认每八次同类检查可再提醒。Stop 使用独立通知计数，默认 UI 警告。stop_on_errors 启用后，结构错误可以请求继续，但 stop_hook_active=true 时不再次续回合；warning 不强制继续。
+PostToolUse 调用扫描，将当前问题经 JSON additionalContext 返回；不读 transcript/tool_response 或聊天。Codex 安装器将它配置为 `async=true`，因此工具结果先完成，提醒在后续安全点送达；它不能阻塞触发它的工具。以问题及相关版本去重，无变化不刷屏，默认每八次同类检查可再提醒。Stop 使用独立通知计数并保持同步，默认 UI 警告。stop_on_errors 启用后，结构错误可以请求继续，但 stop_hook_active=true 时不再次续回合；warning 不强制继续。
 
 宿主 hook 不是完整执行隔离边界。安装配置、命令执行成功、模型确实收到提醒是不同证据。项目与 hook 信任需要正常宿主流程；工具不修改信任或认证。
 
 Git gate 检查暂存的配置和 Markdown，不被工作区未暂存内容替代；只检查结构，不将本地 review 数据库当作 Git 内的审查证据。
+
+MCP 服务支持两种启动模式：传入 `--root` 时绑定该项目；不传入时以未绑定模式启动，不在启动时扫描任何目录。未绑定模式的每次项目工具调用都必须提供绝对 `root`，需要建立项目时先调用 `spec_init(root=...)`。每个成功的 MCP 投影都带有 `project_root`，客户端必须核对它与当前项目绝对路径一致；缺失或不一致时不得提交 review/decide，应改用带显式 `--root` 的 CLI。不要把相对路径或 shell 变量当作 root；MCP 不会替客户端展开它们。跨项目使用 MCP 时可复用一个未绑定服务，或在目标项目中运行 `install --codex` 生成项目级绑定配置；全局固定到某个仓库的旧条目应停用。
 
 ## 输出与退出码
 
@@ -97,7 +99,7 @@ hook 使用协议 JSON 返回，扫描失败通过 systemMessage 明示，不冒
 
 ## 0.3 Agent 交互扩展
 
-不改变 Markdown 字段。MCP spec_check 默认 summary；detail=full 返回正文。CLI check/scan 保留 full 默认，提供 --detail summary、--scope、--since-snapshot、--limit。单项 MCP review/decide 为摘要回执，分别附 reviewed_ids/decision。旧客户端若依赖 items 应显式请求 full 或 context。
+不改变 Markdown 字段。MCP spec_init 用显式 root 创建默认配置和受管目录，不扫描或覆盖已有配置；spec_check 默认 summary，detail=full 返回正文。未绑定服务的每个工具调用都需要绝对 root，绑定服务可以省略；成功结果带 project_root。CLI check/scan 保留 full 默认，提供 --detail summary、--scope、--since-snapshot、--limit。单项 MCP review/decide 为摘要回执，分别附 reviewed_ids/decision。旧客户端若依赖 items 应显式请求 full 或 context。
 
 summary 包含 snapshot、valid、project_error_count、project_unresolved_count、unresolved_count、affected_ids、findings（默认20条，limit 1..200）、findings_omitted 和 item_count。affected_ids 是范围内待处理条目，不等于变更集合。scope 仅投影显示；valid 始终为全项目结果，CLI warning 门槛仍考虑全项目问题。完整 ID 列表可能较长，摘要不承诺固定字节上限。
 
