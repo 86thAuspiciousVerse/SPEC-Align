@@ -97,6 +97,15 @@ def test_mcp_real_stdio_roundtrip(project):
                     assert 'A' in json.loads(full.content[0].text)['items']
                     contextual = await client.call_tool('spec_context', {'items':['A','B'], 'related':True})
                     assert not contextual.isError
+                    compact_impact = await client.call_tool('spec_impact', {'item': 'A', 'limit': 1})
+                    assert not compact_impact.isError
+                    compact = json.loads(compact_impact.content[0].text)
+                    assert compact['project_root'] == str(runtime.root)
+                    assert compact['impact'][0]['chain'] == ['B', 'A']
+                    assert 'nodes' not in compact
+                    full_impact = await client.call_tool('spec_impact', {'item': 'A', 'detail': 'full'})
+                    assert not full_impact.isError
+                    assert 'nodes' in json.loads(full_impact.content[0].text)
                     batch = await client.call_tool('spec_review_batch', {'snapshot': report['snapshot'], 'reviews':[{'item':'B','reason':'Fixture batch evidence'}]})
                     assert not batch.isError and json.loads(batch.content[0].text)['batch_id']
                     plan = await client.call_tool('spec_migration_plan', {})
@@ -216,4 +225,3 @@ def test_inline_mcp_table_rejected_without_mutating_files(project):
         install(runtime.root, codex=True)
     assert path.read_bytes() == original
     assert not (runtime.root / '.codex/hooks.json').exists()
-

@@ -111,3 +111,8 @@ spec_review_batch(snapshot,reviews) / CLI review-batch --snapshot TOKEN --file r
 
 spec_migration_plan(scope) / CLI migration-plan --scope：只读预演已采纳替代关系，返回直接依赖旧项的 active 条目、声明继任链、有效候选和换边循环检查。requires_judgment=true，applied=false；不改文件或审计决定，不推断遗漏依赖。批量accept、多文件回滚、全局账本、代码/测试关联均不在此扩展范围内。
 
+## 0.4 变更摘要与影响查询
+
+提供 since_snapshot 时，检查结果还返回 changed_items（新增/修改/删除、前后状态、实际改变的元数据字段或正文）、changed_proposed_count、downstream_impact（一个可追溯的 depends_on 链与变更源）、downstream_active_count 和 downstream_proposed_count。已改变的下游条目只列在 changed_items，downstream_impact 列其他受影响条目，避免重复。changed_items 与 downstream_impact 各最多返回 limit 项，超出分别计入 *_omitted；原有 changed_ids/change_affected_ids 保留完整 ID 列表。字段只描述可验证的文档差异和已声明的关系，不推断语义原因或要求所有提案复核。没有先前快照时，检查不能准确声称“本次改动”。hook 若观察到已纳管提案相对上次可解析扫描发生变化，会另外发一次简短提示，附带旧快照供进一步查询；当前结构无效时，先修复结构再运行 since_snapshot 查询。这不产生 needs_review，也不修改提案状态。
+
+spec_impact(item) / CLI impact ID 默认返回精简的 depends_on 下游链、状态和数量，不带节点正文或全图边；limit（默认50、最大200）与 offset 支持分页，next_offset 为 null 表示结束。detail=full / CLI --detail full 显式返回原先的完整图；CLI graph 仍用于完整图导出。影响链是可能需要人检查的范围，不表示条目内容已失效。正文使用 spec_context/spec_explain 按需读取。

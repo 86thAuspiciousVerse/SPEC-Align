@@ -1,6 +1,7 @@
 import json
 import pytest
 from specalign.core import ProtocolError
+from specalign.output import agent_report
 from test_runtime import block, project
 
 
@@ -53,6 +54,89 @@ def test_changed_deleted_and_old_scope(project):
     with pytest.raises(ProtocolError):r.check(since_snapshot='unknown')
 
 
+def test_proposal_edit_is_visible_without_forcing_review(project):
+    r, spec = project
+    path = spec / 'plan.md'
+    proposal = block('PLAN', 'Batch output is required', deps=['REQ']).replace('status: active', 'status: proposed')
+    downstream = block('ACCEPTANCE', 'Test batch output', deps=['PLAN']).replace('status: active', 'status: proposed')
+    path.write_text(block('REQ') + proposal + downstream, encoding='utf-8')
+    baseline = r.scan()['snapshot']
+
+    path.write_text(block('REQ') + proposal.replace('Batch output is required', 'Batch output is optional') + downstream,
+                    encoding='utf-8')
+    reminder = r.hook({'hook_event_name': 'PostToolUse', 'session_id': 'proposal-test'})
+    message = reminder['hookSpecificOutput']['additionalContext']
+    assert 'PLAN' in message and '1 proposed' in message and baseline in message
+    assert r.hook({'hook_event_name': 'PostToolUse', 'session_id': 'proposal-test'}) == {}
+
+    report = r.check(since_snapshot=baseline)
+    assert report['findings'] == []
+    assert report['changed_proposed_count'] == 1
+    assert report['changed_items'][0] == {
+        'item': 'PLAN', 'change': 'modified', 'status_before': 'proposed',
+        'status_after': 'proposed', 'changed_fields': ['body'],
+    }
+    assert report['downstream_impact'][0]['item'] == 'ACCEPTANCE'
+    assert report['downstream_impact'][0]['chain'] == ['ACCEPTANCE', 'PLAN']
+    assert report['downstream_proposed_count'] == 1
+    assert report['downstream_active_count'] == 0
+    assert '1 proposed; declared downstream 0 active, 1 proposed' in agent_report(report, r.root)
+
+
+def test_change_summary_separates_review_warning_from_proposal_impact(project):
+    r, spec = project
+    path = spec / 'plan.md'
+    proposed = lambda ident, deps: block(ident, deps=deps).replace('status: active', 'status: proposed')
+    original = block('REQ') + proposed('PLAN', ['REQ']) + proposed('ACCEPTANCE', ['PLAN']) + block('LIVE', deps=['REQ'])
+    path.write_text(original, encoding='utf-8')
+    initial = r.scan()['snapshot']
+    r.review('LIVE', initial, 'Initial dependency check')
+
+    path.write_text(original.replace('Text', 'Revised', 1), encoding='utf-8')
+    report = r.check(since_snapshot=initial)
+    assert report['changed_ids'] == ['REQ']
+    assert report['changed_proposed_count'] == 0
+    assert report['downstream_active_count'] == 1
+    assert report['downstream_proposed_count'] == 2
+    assert {entry['item']: entry['chain'] for entry in report['downstream_impact']} == {
+        'LIVE': ['LIVE', 'REQ'], 'PLAN': ['PLAN', 'REQ'],
+        'ACCEPTANCE': ['ACCEPTANCE', 'PLAN', 'REQ'],
+    }
+    assert {(finding['code'], finding['item']) for finding in report['findings']} == {('needs_review', 'LIVE')}
+
+
+def test_changed_downstream_item_is_reported_once(project):
+    r, spec = project
+    path = spec / 'plan.md'
+    path.write_text(block('A') + block('B', deps=['A']) + block('C', deps=['B']), encoding='utf-8')
+    baseline = r.scan()['snapshot']
+    path.write_text(block('A', 'Changed A') + block('B', 'Changed B', deps=['A']) +
+                    block('C', deps=['B']), encoding='utf-8')
+    report = r.check(since_snapshot=baseline)
+    assert report['changed_ids'] == ['A', 'B']
+    assert report['change_affected_ids'] == ['A', 'B', 'C']
+    assert [entry['item'] for entry in report['downstream_impact']] == ['C']
+    assert report['downstream_impact'][0]['chain'] == ['C', 'B']
+
+
+@pytest.mark.parametrize('event_name', ['PostToolUse', 'Stop'])
+def test_proposal_notice_survives_unrelated_structure_error(project, event_name):
+    r, spec = project
+    if event_name == 'Stop':
+        (r.root / 'specalign.yaml').write_text('stop_on_errors: true\n', encoding='utf-8')
+    path = spec / 'plan.md'
+    path.write_text(block('PLAN').replace('status: active', 'status: proposed'), encoding='utf-8')
+    baseline = r.scan()['snapshot']
+    path.write_text(block('PLAN', 'Revised').replace('status: active', 'status: proposed') +
+                    block('BROKEN', deps=['MISSING']), encoding='utf-8')
+    result = r.hook({'hook_event_name': event_name, 'session_id': 'invalid-proposal'})
+    message = result['reason'] if event_name == 'Stop' else result['hookSpecificOutput']['additionalContext']
+    if event_name == 'Stop':
+        assert result['decision'] == 'block'
+    assert 'missing_target' in message and 'proposal changes' in message and baseline in message
+    assert not r.check()['valid']
+
+
 def test_migration_candidate_cycle_and_no_writes(project):
     r,spec=project
     path=spec/'a.md'
@@ -71,4 +155,3 @@ def test_related_context_bounded_and_multiple_targets(project):
     assert sum(len(i['body']) for i in result['items'].values())==500
     assert result['items']['B']['body_truncated']
     with pytest.raises(ProtocolError):r.context_many([])
-

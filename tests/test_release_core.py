@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 
@@ -89,6 +90,22 @@ def test_typed_impact_context_and_export(project):
     assert 'references' in runtime.graph(format='mermaid')
 
 
+def test_compact_impact_pages_chains_and_explicit_full_graph(project):
+    runtime, spec = project
+    (spec / 'all.md').write_text(block('A', 'a' * 20000) + block('B', deps=['A']) +
+                                 block('C', deps=['B']) + block('D', deps=['A']), encoding='utf-8')
+    first = runtime.impact_report('A', limit=1)
+    assert first['impacted_count'] == 3 and first['next_offset'] == 1
+    assert first['impact'] == [{'item': 'B', 'status': 'active', 'chain': ['B', 'A'], 'direct': True}]
+    assert 'nodes' not in first and 'edges' not in first and len(json.dumps(first)) < 1000
+    second = runtime.impact_report('A', limit=1, offset=1)
+    assert second['impact'][0]['item'] == 'D'
+    assert runtime.impact_report('A', limit=1, offset=3)['impact'] == []
+    assert runtime.impact_report('A', detail='full')['nodes']['A']['body'] == 'a' * 20000
+    with pytest.raises(ProtocolError):
+        runtime.impact_report('A', offset=-1)
+
+
 def test_stop_continues_only_once_and_input_is_validated(project):
     runtime, spec = project
     (runtime.root / 'specalign.yaml').write_text('stop_on_errors: true\n', encoding='utf-8')
@@ -163,4 +180,3 @@ def test_parse_failure_does_not_resolve_old_semantic_findings(project):
     file.write_text('<!-- spec\nid: B', encoding='utf-8')
     assert not runtime.scan()['valid']
     assert next(i for i in runtime.history()['issues'] if i['id'] == issue)['status'] == 'open'
-

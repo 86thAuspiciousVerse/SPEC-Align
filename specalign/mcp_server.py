@@ -92,10 +92,10 @@ def build_server(root=None):
         return scoped(call(target, 'context_many', [item] if item is not None else items, max_chars, related, max_items), target)
 
     @server.tool(annotations=read)
-    def spec_impact(item: str, root: str | None = None) -> dict:
-        """Return declared downstream impact chains and graph edges."""
+    def spec_impact(item: str, root: str | None = None, detail: str = 'summary', limit: int = 50, offset: int = 0) -> dict:
+        """Page compact declared downstream chains; detail=full returns the legacy graph."""
         target = resolve_root(root)
-        return scoped(call(target, 'graph', item), target)
+        return scoped(call(target, 'impact_report', item, detail, limit, offset), target)
 
     @server.tool(annotations=read)
     def spec_history(item: str | None = None, root: str | None = None) -> dict:
@@ -132,4 +132,3 @@ def build_server(root=None):
 
 def run_server(root=None):
     build_server(root).run(transport='stdio')
-

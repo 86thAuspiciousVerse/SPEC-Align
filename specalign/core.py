@@ -234,6 +234,10 @@ class Runtime:
         from .query import check
         return check(self, detail, scope, since_snapshot, limit)
 
+    def impact_report(self, ident, detail='summary', limit=50, offset=0):
+        from .query import impact_report
+        return impact_report(self, ident, detail, limit, offset)
+
     def context_many(self, ids, max_chars=12000, related=False, max_items=30):
         from .query import context_many
         return context_many(self, ids, max_chars, related, max_items)
@@ -467,8 +471,16 @@ class Runtime:
         if event.get('hook_event_name') not in {'PostToolUse', 'Stop'}:
             return {}
         with self.transaction():
+            previous = self.db.execute("SELECT value FROM state WHERE key='current'").fetchone()
+            previous_snapshot = previous[0] if previous else None
             report = self._scan()
             self.db.execute("INSERT OR REPLACE INTO state VALUES ('report',?)", (json.dumps(report, ensure_ascii=False),))
+            proposal_delta = None
+            if previous_snapshot and report['snapshot'] is not None and previous_snapshot != report['snapshot']:
+                from .query import change_projection
+                row = self.db.execute('SELECT payload FROM snapshots WHERE id=?', (previous_snapshot,)).fetchone()
+                if row:
+                    proposal_delta = change_projection(json.loads(row[0]), report['items'], limit=8)
             related = set()
             for problem in report['findings']:
                 related.update([problem['item'], problem.get('target'), *problem.get('chain', [])])
@@ -481,15 +493,33 @@ class Runtime:
             session = str(event.get('session_id', 'unknown')) + ':' + event['hook_event_name']
             old = self.db.execute('SELECT fingerprint,checks FROM deliveries WHERE session=?', (session,)).fetchone()
             count = old[1] + 1 if old and old[0] == fingerprint else 0
-            notify = bool(report['findings']) and (count == 0 or count >= self.config['remind_after'])
-            self.db.execute('INSERT OR REPLACE INTO deliveries VALUES (?,?,?)', (session, fingerprint, 0 if notify else count))
-        if event['hook_event_name'] == 'Stop' and self.config['stop_on_errors'] and not report['valid'] and not event.get('stop_hook_active', False):
-            return {'decision': 'block', 'reason': agent_report(report, self.root)}
-        if not notify:
+            notify_findings = bool(report['findings']) and (count == 0 or count >= self.config['remind_after'])
+            self.db.execute('INSERT OR REPLACE INTO deliveries VALUES (?,?,?)', (session, fingerprint, 0 if notify_findings else count))
+        stop_block = (event['hook_event_name'] == 'Stop' and self.config['stop_on_errors']
+                      and not report['valid'] and not event.get('stop_hook_active', False))
+        notify_proposals = bool(proposal_delta and proposal_delta['changed_proposed_count'])
+        if not notify_findings and not notify_proposals and not stop_block:
             return {}
-        message = agent_report(report, self.root, limit=8)
+        messages = []
+        if notify_findings or stop_block:
+            messages.append(agent_report(report, self.root, limit=8))
+        if notify_proposals:
+            proposals = [entry['item'] for entry in proposal_delta['changed_items']
+                         if 'proposed' in (entry['status_before'], entry['status_after'])]
+            labels = ', '.join(proposals[:5])
+            remaining = proposal_delta['changed_proposed_count'] - min(5, len(proposals))
+            if remaining:
+                labels += f' (+{remaining} more)'
+            messages.append(f"Spec Align proposal changes since snapshot {previous_snapshot}: "
+                            f"{proposal_delta['changed_proposed_count']} changed ({labels}); "
+                            f"declared downstream: {proposal_delta['downstream_active_count']} active, "
+                            f"{proposal_delta['downstream_proposed_count']} proposed. "
+                            "These are impact candidates, not automatic review requirements. "
+                            "Use check --since-snapshot with that snapshot for details.")
+        message = '\n'.join(messages)
+        if stop_block:
+            return {'decision': 'block', 'reason': message}
         if event['hook_event_name'] == 'Stop':
             # Advisory only in v0.1. Never create an automatic continuation loop.
             return {'systemMessage': message}
         return {'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': message}}
-

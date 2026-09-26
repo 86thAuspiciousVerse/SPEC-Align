@@ -84,7 +84,12 @@ MCP spec_check 默认 summary，不再返回全部 items 正文；单项采纳/�
 
 check(since_snapshot=已保存快照) 明确比较基线，返回 changed_ids/deleted_ids/change_affected_ids；没有基线时不要把待处理问题当作本次变更。scope 不是隔离项目，跨范围依赖仍需要检查。
 
+在一批重要设计编辑前保存当前 check 的 snapshot，编辑后用 spec_check(since_snapshot=旧快照, root=项目绝对路径) 查询。优先读 changed_items 中的新增/修改/删除、status_before/status_after、changed_fields，再读 downstream_impact 的变更源和 depends_on 链；changed_proposed_count、downstream_active_count、downstream_proposed_count 让提案影响可见。结果有 *_omitted 时调高 limit（最大200），不把截断结果当作全部。hook 的 proposal changes 提示只说明已声明提案发生变化，不要求自动复核或自动采纳；按其中的旧快照进一步检查。runtime 不会从正文归纳“为何改动”，由 agent 结合任务记录说明语义原因。
+
+spec_impact 默认返回分页的精简 ID/状态/下游链，不含正文；需要下一页时传 next_offset，需要旧版完整图时显式使用 detail="full"。正文按需通过 spec_context/spec_explain 阅读，不把完整图直接塞入上下文。
+
+ID 是长期身份。仅修改标题、措辞而事实未变时保留 ID；如果旧 ID 已误导且契约含义发生变化，新建清晰的 ID，通过 supersedes 保留替代链，再依据 migration-plan 人工检查并迁移旧依赖。当前协议没有自动别名或静默重命名，不能将语义变化伪装成同一身份。
+
 替代之后用 spec_migration_plan(scope=可选范围) 查看仍依赖旧条目的迁移候选。candidate 只是声明的有效继任者，requires_judgment 永远为 true；检查 would_create_cycle 并阅读新旧契约后再决定换边、删边或重写。工具不自动修改文件，不保证候选语义兼容。
 
 不要每次小编辑都主动全量 check。以任务开始、重大设计变化和阶段收口为检查时机，hook 提供额外提醒。复用了上游的具体参数或验收要求时，直接声明该依据，避免仅靠间接传播漏掉需更新的复述。
-

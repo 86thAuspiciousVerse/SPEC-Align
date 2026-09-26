@@ -9,7 +9,7 @@
 
 ## 安装和起步
 
-Windows x64 也提供单文件 `specalign.exe`，无需安装 Python，支持相同 CLI 和 `serve` MCP 接口。本地构建发布包后会得到 `dist/specalign-0.3.0-windows-x64.zip`；使用见 [Windows 说明](packaging/WINDOWS-README.md)，构建见 [打包流程](packaging/README.md)。安装后应固定 exe 位置；打包不会解决宿主切换提供商导致配置未加载的问题。
+Windows x64 也提供单文件 `specalign.exe`，无需安装 Python，支持相同 CLI 和 `serve` MCP 接口。本地构建发布包后会得到 `dist/specalign-0.4.0-windows-x64.zip`；使用见 [Windows 说明](packaging/WINDOWS-README.md)，构建见 [打包流程](packaging/README.md)。安装后应固定 exe 位置；打包不会解决宿主切换提供商导致配置未加载的问题。
 
 源码安装支持 Python 3.10–3.13；仓库内的 GitHub Actions 会在 Ubuntu 与 Windows 上运行测试和临时目录演示。Windows 单文件目前只面向 x64，构建脚本和验收证据见 `packaging/`。
 
@@ -38,7 +38,7 @@ specalign --root C:/path/to/project review DESIGN-STORAGE --snapshot <返回的�
 | scan / check | JSON 扫描结果；--agent 为短报告；--fail-on error 忽略 warning 门槛 |
 | explain ID | 当前正文、已审查基线和差异 |
 | context ID --max-chars N | 条目及显式上游；正文截断会标明 |
-| impact ID | 下游链与关系图 |
+| impact ID | 默认返回可分页的精简下游链；`--detail full` 查看完整关系图 |
 | graph --format json/mermaid | 导出完整声明图 |
 | review ID --snapshot TOKEN --reason TEXT | 绑定版本的兼容性复核 |
 | accept / retire ID --snapshot TOKEN --actor NAME --reason TEXT | 显式采纳或退役，记录理由 |
@@ -105,3 +105,8 @@ MCP 默认检查和写入回执改为摘要；完整正文用 `spec_check(detail
 
 更新代码后，已有 MCP 服务进程需要重新加载才能看到新接口；已运行的旧进程不作为新版本验收依据。hook 定义未改变，无需通过重新生成配置更换其信任 hash。
 
+## 0.4 变更提示与影响查询
+
+在一批文档编辑前保存 `spec_check` 的 snapshot，编辑后调用 `spec_check(since_snapshot=旧快照)`。结果会区分变更条目、`proposed` 变更数量，以及通过 `depends_on` 声明的 active/proposed 下游候选；hook 也会对观察到的提案变化发出简短提示。工具只报告可验证的字段变化和依赖链，语义判断仍由 agent 完成。
+
+`spec_impact(item=...)` 默认只返回可分页的 ID、状态与下游链；需要完整节点正文和边时显式传 `detail="full"`。CLI 对应 `impact ID --limit 50 --offset 0` 与 `impact ID --detail full`。完整合同见 [协议](docs/PROTOCOL.md)。

@@ -1,7 +1,97 @@
 """Read-only projections: filtering never weakens whole-project validation."""
+from collections import deque
 import json
 from .protocol import ProtocolError
 from .graph import impact, cycle_members
+
+
+CHANGE_FIELDS = ('status', 'depends_on', 'references', 'supersedes', 'challenges', 'scope', 'kind', 'body')
+
+
+def change_projection(old, current, limit=20, scope=None):
+    """Describe declared snapshot changes without claiming semantic incompatibility."""
+    changed = {key for key in old.keys() | current.keys()
+               if old.get(key, {}).get('version') != current.get(key, {}).get('version')}
+
+    def visible(key):
+        return scope is None or any(items[key].get('scope', 'project') == scope
+                                    for items in (old, current) if key in items)
+
+    visible_changed = {key for key in changed if visible(key)}
+    records = []
+    for key in visible_changed:
+        before, after = old.get(key), current.get(key)
+        records.append({
+            'item': key,
+            'change': 'added' if before is None else 'deleted' if after is None else 'modified',
+            'status_before': before['status'] if before else None,
+            'status_after': after['status'] if after else None,
+            'changed_fields': [field for field in CHANGE_FIELDS if before.get(field) != after.get(field)]
+                              if before and after else [],
+        })
+    records.sort(key=lambda entry: (not ('proposed' in (entry['status_before'], entry['status_after'])), entry['item']))
+
+    # Seed a single reverse traversal with every changed item. A batch with many
+    # independent edits should not rebuild the whole graph once per item.
+    def walk(items):
+        reverse = {}
+        for key, item in items.items():
+            for dependency in item.get('depends_on', []):
+                reverse.setdefault(dependency, []).append(key)
+        distance = {key: 0 for key in changed}
+        source = {key: key for key in changed}
+        parent = {}
+        queue = deque(sorted(changed))
+        while queue:
+            key = queue.popleft()
+            for child in sorted(reverse.get(key, [])):
+                if child in distance:
+                    continue
+                distance[child] = distance[key] + 1
+                source[child] = source[key]
+                parent[child] = key
+                queue.append(child)
+        return distance, source, parent
+
+    # Changed items are already in changed_items. The downstream list contains
+    # only other affected items, with one shortest declared path for each.
+    downstream = {}
+    for items in (old, current):
+        distance, sources, parents = walk(items)
+        for key, steps in distance.items():
+            if key in changed or not visible(key):
+                continue
+            candidate = (steps, sources[key])
+            if key not in downstream or candidate < downstream[key]['rank']:
+                downstream[key] = {'rank': candidate, 'source': sources[key], 'parents': parents}
+
+    def effective_status(key):
+        item = current.get(key, old.get(key))
+        return item.get('effective_status', item['status'])
+
+    impact_keys = sorted(downstream, key=lambda key: (effective_status(key) != 'active', key))
+    impact_records = []
+    for key in impact_keys[:limit]:
+        entry = downstream[key]
+        chain = [key]
+        while chain[-1] != entry['source']:
+            chain.append(entry['parents'][chain[-1]])
+        impact_records.append({'item': key, 'status': effective_status(key), 'source': entry['source'],
+                               'chain': chain, 'direct': len(chain) == 2})
+
+    affected = changed | set(downstream)
+    return {
+        'changed_ids': sorted(visible_changed),
+        'deleted_ids': sorted(visible_changed - current.keys()),
+        'change_affected_ids': sorted(key for key in affected if visible(key)),
+        'changed_items': records[:limit],
+        'changed_items_omitted': max(0, len(records) - limit),
+        'changed_proposed_count': sum('proposed' in (entry['status_before'], entry['status_after']) for entry in records),
+        'downstream_impact': impact_records,
+        'downstream_impact_omitted': max(0, len(impact_keys) - limit),
+        'downstream_active_count': sum(effective_status(key) == 'active' for key in impact_keys),
+        'downstream_proposed_count': sum(effective_status(key) == 'proposed' for key in impact_keys),
+    }
 
 
 def project_report(report, detail="summary", scope=None, limit=20):
@@ -35,16 +125,31 @@ def check(runtime, detail="summary", scope=None, since_snapshot=None, limit=20):
         if not report["valid"]:
             raise ProtocolError("Cannot compare an invalid current scan")
         old, current = json.loads(row[0]), report["items"]
-        changed = {k for k in old.keys() | current.keys() if old.get(k, {}).get("version") != current.get(k, {}).get("version")}
-        visible = {k for k in changed if scope is None or any(m.get(k, {}).get("scope", "project") == scope for m in (old, current) if k in m)}
-        affected = set(changed)
-        for key in changed:
-            affected.update(impact(old, key))
-            affected.update(impact(current, key))
-        result.update(since_snapshot=since_snapshot, changed_ids=sorted(visible),
-                      deleted_ids=sorted(visible-current.keys()),
-                      change_affected_ids=sorted(k for k in affected if scope is None or any(m.get(k, {}).get("scope", "project") == scope for m in (old,current) if k in m)))
+        result.update(since_snapshot=since_snapshot, **change_projection(old, current, limit, scope))
     return result
+
+
+def impact_report(runtime, ident, detail='summary', limit=50, offset=0):
+    """Page compact impact chains; retain the original full graph by opt-in."""
+    if detail not in ('summary', 'full') or type(limit) is not int or not 1 <= limit <= 200 or type(offset) is not int or offset < 0:
+        raise ProtocolError('detail must be summary/full; limit must be 1..200; offset must be nonnegative')
+    if detail == 'full':
+        return runtime.graph(ident)
+    report = runtime.scan()
+    items = report['items']
+    if ident not in items:
+        raise ProtocolError('Impact target unavailable; inspect check')
+    chains = impact(items, ident)
+    projected = [{'item': key, 'status': items[key].get('effective_status', items[key]['status']),
+                  'chain': chain, 'direct': len(chain) == 2}
+                 for key, chain in chains.items()]
+    projected.sort(key=lambda entry: (len(entry['chain']), entry['item']))
+    shown = projected[offset:offset + limit]
+    return {'schema_version': 1, 'snapshot': report['snapshot'], 'valid': report['valid'],
+            'target': ident, 'target_status': items[ident].get('effective_status', items[ident]['status']),
+            'relation': 'depends_on', 'impacted_count': len(projected), 'impact': shown,
+            'offset': offset, 'limit': limit, 'next_offset': offset + len(shown) if offset + len(shown) < len(projected) else None,
+            'project_error_count': sum(f['severity'] == 'error' for f in report['findings'])}
 
 
 def migration_plan(runtime, scope=None):
@@ -131,4 +236,3 @@ def context_many(runtime, ids, max_chars=12000, related=False, max_items=30):
         relevant = [e for e in graph_edges if e['source'] in selected and e['target'] in selected]
         result.update(edges=relevant[:200], edges_omitted=max(0,len(relevant)-200))
     return result
-

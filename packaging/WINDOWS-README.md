@@ -1,4 +1,4 @@
-# Spec Align 0.3.0 — Windows x64
+# Spec Align — Windows x64
 
 本地单文件 CLI / MCP 工具，无需安装 Python。不是双击打开的图形应用。
 
@@ -48,11 +48,10 @@ args = ['serve']
 
 ## 发布与验证边界
 
-本包为 Windows x64 本地构建，未进行代码签名，未上传远程发布；不宣称已获 SmartScreen 信誉。
+本包为 Windows x64 构建，未进行代码签名，不宣称已获 SmartScreen 信誉。发行状态以仓库 Release 页面为准。
 程序启动会将单文件内嵌依赖解包到系统临时目录，需要可写临时目录。
 在当前 Windows 主机完成仓库外运行、Unicode/空格路径、无 Python PATH、MCP 协议和 hook 命令验证；未在全新 Windows 虚拟机或其他架构验证。
 hook 启动时间受磁盘和杀毒扫描影响，本机测量不能代表所有设备。
 
 第三方依赖版本和可获取的许可证文本在 BUILD-ENVIRONMENT.json 与 licenses/。
 当前压缩包不替代代码仓库的授权条款；未声明额外的开源授权。
-

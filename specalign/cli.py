@@ -2,6 +2,7 @@ import argparse
 import json
 import sqlite3
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from .core import ProtocolError, Runtime
@@ -14,6 +15,11 @@ def main():
         if hasattr(stream, 'reconfigure'):
             stream.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(prog='specalign')
+    try:
+        package_version = version('spec-align')
+    except PackageNotFoundError:
+        package_version = 'source'
+    parser.add_argument('--version', action='version', version=f'%(prog)s {package_version}')
     parser.add_argument('--root', type=Path)
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('init')
@@ -30,7 +36,11 @@ def main():
     context.add_argument('--related', action='store_true')
     context.add_argument('--max-items', type=int, default=30)
     context.add_argument('--max-chars', type=int, default=12000)
-    sub.add_parser('impact').add_argument('item')
+    impact = sub.add_parser('impact')
+    impact.add_argument('item')
+    impact.add_argument('--detail', choices=('summary', 'full'), default='summary')
+    impact.add_argument('--limit', type=int, default=50)
+    impact.add_argument('--offset', type=int, default=0)
     graph = sub.add_parser('graph')
     graph.add_argument('--format', choices=('json', 'mermaid'), default='json')
     sub.add_parser('history').add_argument('item', nargs='?')
@@ -110,8 +120,10 @@ def main():
             result = runtime.explain(args.item)
         elif args.command == 'context':
             result = runtime.context_many(args.items, args.max_chars, args.related, args.max_items)
-        elif args.command in {'graph', 'impact'}:
-            result = runtime.graph(getattr(args, 'item', None), getattr(args, 'format', 'json'))
+        elif args.command == 'impact':
+            result = runtime.impact_report(args.item, args.detail, args.limit, args.offset)
+        elif args.command == 'graph':
+            result = runtime.graph(format=args.format)
         elif args.command == 'history':
             result = runtime.history(args.item)
         elif args.command == 'backup':
@@ -136,4 +148,3 @@ def main():
     finally:
         if runtime:
             runtime.close()
-

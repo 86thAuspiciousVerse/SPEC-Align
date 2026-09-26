@@ -59,6 +59,8 @@ def main():
                         report = await call('spec_check', {})
                         assert report['project_root'] == str(root)
                         assert 'items' not in report and report['unresolved_count'] == 1
+                        compact = await call('spec_impact', {'item': 'A'})
+                        assert compact['impact'][0]['chain'] == ['B', 'A'] and 'nodes' not in compact
                         await call('spec_context', {'items':['B'],'related':True})
                         report = await call('spec_review_batch', {'snapshot':report['snapshot'], 'reviews':[{'item':'B','reason':'Fixture: local design matches local requirement.'}]})
                         assert report['findings'] == []
@@ -74,7 +76,16 @@ def main():
                         assert not unbound.isError
                         assert json.loads(unbound.content[0].text)['project_root'] == str(root)
         anyio.run(mcp)
-        assert json.loads(run('check','--detail','summary'))['findings'] == []
+        baseline = json.loads(run('check','--detail','summary'))
+        assert baseline['findings'] == []
+        (root / 'spec/proposal.md').write_text(
+            '<!-- spec\nid: PLAN\nstatus: proposed\ndepends_on: [A]\n-->\nA revised proposal.\n<!-- /spec -->\n\n'
+            '<!-- spec\nid: PLAN-TEST\nstatus: proposed\ndepends_on: [PLAN]\n-->\nAcceptance candidate.\n<!-- /spec -->\n',
+            encoding='utf-8')
+        changed = json.loads(run('check', '--detail', 'summary', '--since-snapshot', baseline['snapshot']))
+        assert changed['changed_proposed_count'] == 2 and changed['changed_ids'] == ['PLAN', 'PLAN-TEST']
+        assert 'nodes' not in json.loads(run('impact', 'A'))
+        assert 'nodes' in json.loads(run('impact', 'A', '--detail', 'full'))
         run('backup',str(base/'ledger.sqlite3'))
         run('uninstall','--codex')
         print(json.dumps({'exe_smoke':'passed','mcp_tools':10,'hook_seconds':round(elapsed,3),
@@ -83,4 +94,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
